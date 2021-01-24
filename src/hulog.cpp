@@ -20,6 +20,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <unistd.h>
+#include "json.hpp"
 
 #include <map>
 #include <set>
@@ -28,6 +29,7 @@
 
 #include "hulog.h"
 
+using json = nlohmann::json;
 
 /* ----------- Defines ------------------------------------------- */
 #define MAX_CALL_STACK 20   /* Limits the callstack depth to store */
@@ -118,24 +120,29 @@ void log_enable(int flag) {
 }
 
 void
-log_print_callstack(FILE *f, int callstack_depth, void *const callstack[]) {
+log_print_callstack(FILE *f, int callstack_depth, void *const callstack[],
+                    json &j) {
     if (callstack_depth > 0) {
         int i = 1;
+        j["trace"] = json::array();
         while (i < callstack_depth) {
-#if UINTPTR_MAX == 0xffffffff
-            fprintf(f, "==%d==    at 0x%08x", pid, (unsigned int) callstack[i]);
-#else
-            fprintf(f, "0x%016" PRIxPTR, (unsigned long) callstack[i]);
-#endif
+            json o;
+            #if UINTPTR_MAX == 0xffffffff
+                        fprintf(f, "==%d==    at 0x%08x", pid, (unsigned int) callstack[i]);
+            #else
+                        o["address"] = (unsigned long) callstack[i];
+            #endif
 
             if (hu_log_nosyms) {
                 fprintf(f, "\n");
             } else {
                 std::string symbol = addr_to_symbol(callstack[i]);
-                fprintf(f, ":%s\n", symbol.c_str());
+
+                o["location"] = symbol.c_str();
             }
 
             ++i;
+            j["trace"].push_back(o);
         }
     } else {
         fprintf(f, "    error: backtrace() returned empty callstack\n");
@@ -225,9 +232,10 @@ void log_event(int event, void *ptr, size_t size) {
                         FILE *f = fopen(hu_log_file, "a");
                         if (f) {
                             fprintf(f, " Invalid deallocation at:\n"
-                                    );
+                            );
 
-                            log_print_callstack(f, callstack_depth, callstack);
+//                            log_print_callstack(f, callstack_depth,
+//                                                callstack);
 
                             fprintf(f, "\n");
 
@@ -250,6 +258,7 @@ void log_event(int event, void *ptr, size_t size) {
 
 void log_summary() {
     FILE *f = NULL;
+    json j;
     if (hu_log_file) {
         f = fopen(hu_log_file, "a");
     }
@@ -288,28 +297,33 @@ void log_summary() {
     }
 
     /* Output heap summary */
-    fprintf(f, "bytes:%llu\nblocks:%llu\n",
-            leak_total_bytes, leak_total_blocks);
-    fprintf(f,
-            "allocs:%llu\nfrees:%llu\nbytes:%llu\n",
-            allocinfo_total_allocs, allocinfo_total_frees,
-            allocinfo_total_alloc_bytes);
-    fprintf(f, "peak:%llu\n",
-            allocinfo_peak_alloc_bytes);
-    fprintf(f, "\n");
+    j["lost"] = {
+            {"bytes",  leak_total_bytes},
+            {"blocks", leak_total_blocks}
+    };
 
+    j["runtime"] = {
+            {"allocs", allocinfo_total_allocs},
+            {"frees",  allocinfo_total_frees},
+            {"bytes",  allocinfo_total_alloc_bytes},
+    };
+
+    // c_str might destory j, but it shouldn't matter
+
+    j["leaks"] = json::array();
     /* Output leak details */
     for (auto it = allocations_by_size.rbegin();
          (it != allocations_by_size.rend()) &&
          (it->size >= hu_log_minleak); ++it) {
         if (log_is_valid_callstack(it->callstack_depth, it->callstack, true)) {
-            fprintf(f, "bytes:%zu\nblocks:%d\n", it->size, it->count);
+            json obj = {{"bytes",  it->size},
+                        {"blocks", it->count}};
 
-            log_print_callstack(f, it->callstack_depth, it->callstack);
-
-            fprintf(f, "\n");
+            log_print_callstack(f, it->callstack_depth, it->callstack, obj);
+            j["leaks"].push_back(obj);
         }
     }
+    fprintf(f, "%s", j.dump(4).c_str());
     fclose(f);
 }
 
@@ -340,8 +354,9 @@ static std::string addr_to_symbol(void *addr) {
                 symbol = std::string(dlinfo.dli_sname);
             }
 
+
             if (!symbol.empty()) {
-                symbol += std::string(" + ");
+                symbol += std::string(":");
                 symbol += std::string(std::to_string(
                         (char *) addr - (char *) dlinfo.dli_saddr));
             }

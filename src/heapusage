@@ -185,7 +185,7 @@ if [ "${OUTFILE}" == "" ]; then
   if [ -f "${TMPLOG}" ]; then
     cat "${TMPLOG}" >&2
   else
-    echo "error: FUCK"
+    echo "error: lib not found"
   fi
 
 fi
