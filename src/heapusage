@@ -185,7 +185,7 @@ if [ "${OUTFILE}" == "" ]; then
   if [ -f "${TMPLOG}" ]; then
     cat "${TMPLOG}" >&2
   else
-    echo "error: unable to preload libheapusage"
+    echo "error: FUCK"
   fi
 
 fi
