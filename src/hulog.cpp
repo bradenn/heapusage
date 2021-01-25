@@ -127,22 +127,20 @@ log_print_callstack(FILE *f, int callstack_depth, void *const callstack[],
         j["trace"] = json::array();
         while (i < callstack_depth) {
             json o;
-            #if UINTPTR_MAX == 0xffffffff
-                        fprintf(f, "==%d==    at 0x%08x", pid, (unsigned int) callstack[i]);
-            #else
-                        o["address"] = (unsigned long) callstack[i];
-            #endif
+#if UINTPTR_MAX == 0xffffffff
+            o["address"] = (unsigned int) callstack[i]
+#else
+            o["address"] = (unsigned long) callstack[i];
+#endif
 
-            if (hu_log_nosyms) {
-                fprintf(f, "\n");
-            } else {
-                std::string symbol = addr_to_symbol(callstack[i]);
-
-                o["location"] = symbol.c_str();
+            std::string symbol = addr_to_symbol(callstack[i]);
+            o["location"] = symbol.c_str();
+            if(callstack_depth - 5 <= i){
+                j["trace"].push_back(o);
             }
 
+
             ++i;
-            j["trace"].push_back(o);
         }
     } else {
         fprintf(f, "    error: backtrace() returned empty callstack\n");
@@ -307,6 +305,8 @@ void log_summary() {
             {"frees",  allocinfo_total_frees},
             {"bytes",  allocinfo_total_alloc_bytes},
     };
+
+    j["pid"] = pid;
 
     // c_str might destory j, but it shouldn't matter
 
